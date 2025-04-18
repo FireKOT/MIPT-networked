@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+#3rd Party
+3rdParty/
+
+#build
+build/
