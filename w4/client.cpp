@@ -1,8 +1,8 @@
 #include <functional>
-#include <algorithm> // min/max
+#include <algorithm>
 #include "raylib.h"
 #include <enet/enet.h>
-
+#include <stdio.h>
 #include <vector>
 #include "entity.h"
 #include "protocol.h"
@@ -39,12 +39,18 @@ static void get_entity(uint16_t eid, Callable c)
 void on_snapshot(ENetPacket *packet)
 {
   uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f;
-  deserialize_snapshot(packet, eid, x, y);
+  float x = 0.f; 
+  float y = 0.f;
+  float r = 0.f;
+  int32_t points = 0;
+  deserialize_snapshot(packet, eid, x, y, r, points);
+
   get_entity(eid, [&](Entity& e)
   {
     e.x = x;
     e.y = y;
+    e.r = r;
+    e.points = points;
   });
 }
 
@@ -154,11 +160,25 @@ int main(int argc, const char **argv)
       BeginMode2D(camera);
         for (const Entity &e : entities)
         {
-          const Rectangle rect = {e.x, e.y, 10.f, 10.f};
-          DrawRectangleRec(rect, GetColor(e.color));
+          DrawCircleV(Vector2{e.x, e.y}, e.r, GetColor(e.color));
         }
-
       EndMode2D();
+
+      DrawText("Nickname", 20, 20, 20, WHITE);
+        DrawText("|  Score",    150, 20, 20, WHITE);
+
+        DrawText("--------------------", 20, 40, 20, WHITE);
+
+        size_t offset = 60;
+        for (const Entity &e: entities) {
+
+            if (e.eid != my_entity) DrawText(TextFormat("%d", e.eid), 20, offset, 20, WHITE);
+            else DrawText("Me", 20, offset, 20, WHITE);
+            DrawText(TextFormat("|  %d", e.points), 150, offset, 20, WHITE);
+
+            offset += 20;
+        }
+        
     EndDrawing();
   }
 

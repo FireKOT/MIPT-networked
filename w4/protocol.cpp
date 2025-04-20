@@ -1,94 +1,106 @@
 #include "protocol.h"
-#include <cstring> // memcpy
+#include <cstring>
 
-void send_join(ENetPeer *peer)
-{
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t), ENET_PACKET_FLAG_RELIABLE);
-  *packet->data = E_CLIENT_TO_SERVER_JOIN;
+#include "bitstream.hpp"
 
-  enet_peer_send(peer, 0, packet);
+
+void sendPacket (ENetPeer *peer, const Bitstream &bs, enet_uint8 channalID = 0, enet_uint32 packetFlags = ENET_PACKET_FLAG_RELIABLE) {
+
+    ENetPacket *packet = enet_packet_create(bs.data(), bs.size(), packetFlags);
+    enet_peer_send(peer, channalID, packet);
 }
 
-void send_new_entity(ENetPeer *peer, const Entity &ent)
-{
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t) + sizeof(Entity),
-                                                   ENET_PACKET_FLAG_RELIABLE);
-  uint8_t *ptr = packet->data;
-  *ptr = E_SERVER_TO_CLIENT_NEW_ENTITY; ptr += sizeof(uint8_t);
-  memcpy(ptr, &ent, sizeof(Entity)); ptr += sizeof(Entity);
 
-  enet_peer_send(peer, 0, packet);
+void send_join(ENetPeer *peer) {
+
+    Bitstream bs;
+    bs.write(E_CLIENT_TO_SERVER_JOIN);
+
+    sendPacket(peer, bs);
 }
 
-void send_set_controlled_entity(ENetPeer *peer, uint16_t eid)
-{
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t) + sizeof(uint16_t),
-                                                   ENET_PACKET_FLAG_RELIABLE);
-  uint8_t *ptr = packet->data;
-  *ptr = E_SERVER_TO_CLIENT_SET_CONTROLLED_ENTITY; ptr += sizeof(uint8_t);
-  memcpy(ptr, &eid, sizeof(uint16_t)); ptr += sizeof(uint16_t);
+void send_new_entity(ENetPeer *peer, const Entity &ent) {
 
-  enet_peer_send(peer, 0, packet);
+    Bitstream bs;
+    bs.write(E_SERVER_TO_CLIENT_NEW_ENTITY);
+    bs.write(ent);
+
+    sendPacket(peer, bs);
 }
 
-void send_entity_state(ENetPeer *peer, uint16_t eid, float x, float y)
-{
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t) + sizeof(uint16_t) +
-                                                   2 * sizeof(float),
-                                                   ENET_PACKET_FLAG_UNSEQUENCED);
-  uint8_t *ptr = packet->data;
-  *ptr = E_CLIENT_TO_SERVER_STATE; ptr += sizeof(uint8_t);
-  memcpy(ptr, &eid, sizeof(uint16_t)); ptr += sizeof(uint16_t);
-  memcpy(ptr, &x, sizeof(float)); ptr += sizeof(float);
-  memcpy(ptr, &y, sizeof(float)); ptr += sizeof(float);
+void send_set_controlled_entity(ENetPeer *peer, uint16_t eid) {
 
-  enet_peer_send(peer, 1, packet);
+    Bitstream bs;
+    bs.write(E_SERVER_TO_CLIENT_SET_CONTROLLED_ENTITY);
+    bs.write(eid);
+
+    sendPacket(peer, bs);
 }
 
-void send_snapshot(ENetPeer *peer, uint16_t eid, float x, float y)
-{
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t) + sizeof(uint16_t) +
-                                                   2 * sizeof(float),
-                                                   ENET_PACKET_FLAG_UNSEQUENCED);
-  uint8_t *ptr = packet->data;
-  *ptr = E_SERVER_TO_CLIENT_SNAPSHOT; ptr += sizeof(uint8_t);
-  memcpy(ptr, &eid, sizeof(uint16_t)); ptr += sizeof(uint16_t);
-  memcpy(ptr, &x, sizeof(float)); ptr += sizeof(float);
-  memcpy(ptr, &y, sizeof(float)); ptr += sizeof(float);
+void send_entity_state(ENetPeer *peer, uint16_t eid, float x, float y) {
 
-  enet_peer_send(peer, 1, packet);
+    Bitstream bs;
+    bs.write(E_CLIENT_TO_SERVER_STATE);
+    bs.write(eid);
+    bs.write(x);
+    bs.write(y);
+
+    sendPacket(peer, bs, 1, ENET_PACKET_FLAG_UNSEQUENCED);
 }
 
-MessageType get_packet_type(ENetPacket *packet)
-{
-  return (MessageType)*packet->data;
+void send_snapshot(ENetPeer *peer, uint16_t eid, float x, float y, float r, int32_t points) {
+
+    Bitstream bs;
+    bs.write(E_SERVER_TO_CLIENT_SNAPSHOT);
+    bs.write(eid);
+    bs.write(x);
+    bs.write(y);
+    bs.write(r);
+    bs.write(points);
+
+    sendPacket(peer, bs, 1, ENET_PACKET_FLAG_UNSEQUENCED);
 }
 
-void deserialize_new_entity(ENetPacket *packet, Entity &ent)
-{
-  uint8_t *ptr = packet->data; ptr += sizeof(uint8_t);
-  ent = *(Entity*)(ptr); ptr += sizeof(Entity);
+MessageType get_packet_type(ENetPacket *packet) {
+
+    return (MessageType)*packet->data;
 }
 
-void deserialize_set_controlled_entity(ENetPacket *packet, uint16_t &eid)
-{
-  uint8_t *ptr = packet->data; ptr += sizeof(uint8_t);
-  eid = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
+void deserialize_new_entity(ENetPacket *packet, Entity &ent) {
+
+    Bitstream bs(packet->data, packet->dataLength);
+    bs.skip<uint8_t>();
+
+    bs.read(ent);
 }
 
-void deserialize_entity_state(ENetPacket *packet, uint16_t &eid, float &x, float &y)
-{
-  uint8_t *ptr = packet->data; ptr += sizeof(uint8_t);
-  eid = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
-  x = *(float*)(ptr); ptr += sizeof(float);
-  y = *(float*)(ptr); ptr += sizeof(float);
+void deserialize_set_controlled_entity(ENetPacket *packet, uint16_t &eid) {
+
+    Bitstream bs(packet->data, packet->dataLength);
+    bs.skip<uint8_t>();
+
+    bs.read(eid);
 }
 
-void deserialize_snapshot(ENetPacket *packet, uint16_t &eid, float &x, float &y)
-{
-  uint8_t *ptr = packet->data; ptr += sizeof(uint8_t);
-  eid = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
-  x = *(float*)(ptr); ptr += sizeof(float);
-  y = *(float*)(ptr); ptr += sizeof(float);
+void deserialize_entity_state(ENetPacket *packet, uint16_t &eid, float &x, float &y) {
+
+    Bitstream bs(packet->data, packet->dataLength);
+    bs.skip<uint8_t>();
+
+    bs.read(eid);
+    bs.read(x);
+    bs.read(y);
+}
+
+void deserialize_snapshot(ENetPacket *packet, uint16_t &eid, float &x, float &y, float &r, int32_t &points) {
+
+    Bitstream bs(packet->data, packet->dataLength);
+    bs.skip<uint8_t>();
+
+    bs.read(eid);
+    bs.read(x);
+    bs.read(y);
+    bs.read(r);
+    bs.read(points);
 }
 

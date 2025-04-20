@@ -4,23 +4,44 @@
 #include "protocol.h"
 #include <stdlib.h>
 #include <vector>
+#include <math.h>
 #include <map>
+
 
 static std::vector<Entity> entities;
 static std::map<uint16_t, ENetPeer*> controlledMap;
 
-static uint16_t create_random_entity()
-{
-  uint16_t newEid = entities.size();
-  uint32_t color = 0xff000000 +
-                   0x00440000 * (1 + rand() % 4) +
-                   0x00004400 * (1 + rand() % 4) +
-                   0x00000044 * (1 + rand() % 4);
-  float x = (rand() % 40 - 20) * 5.f;
-  float y = (rand() % 40 - 20) * 5.f;
-  Entity ent = {color, x, y, newEid, false, 0.f, 0.f};
-  entities.push_back(ent);
-  return newEid;
+static uint16_t create_random_entity() {
+
+    uint16_t newEid = entities.size();
+
+    float x = (rand() % 800) - 400;
+    float y = (rand() % 600) - 300;
+    float r = (rand() % 10) + 5;
+
+    uint32_t color = 0xff000000 +
+                     0x00440000 * (1 + rand() % 4) +
+                     0x00004400 * (1 + rand() % 4) +
+                     0x00000044 * (1 + rand() % 4);
+
+    Entity ent {
+        
+        .eid = newEid,
+
+        .x = x,
+        .y = y,
+        .r = r,
+
+        .color = color,
+        .points = 0,
+
+        .serverControlled = false,
+        .targetX = 0.f,
+        .targetY = 0.f,
+    };
+
+    entities.push_back(ent);
+    return newEid;
 }
 
 void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
@@ -37,7 +58,7 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
 
 
   // send info about new entity to everyone
-  for (size_t i = 0; i < host->peerCount; ++i)
+  for (size_t i = 0; i < host->peerCount; ++i) 
     send_new_entity(&host->peers[i], ent);
   // send info about controlled entity
   send_set_controlled_entity(peer, newEid);
@@ -55,6 +76,48 @@ void on_state(ENetPacket *packet)
       e.y = y;
     }
 }
+
+bool isEqf (float lhs, float rhs, float eps = 10-4) {
+
+    return lhs - rhs < eps && lhs - rhs > -eps;
+}
+
+void eatOtherEntity (Entity &slayer, Entity &victim) {
+
+    slayer.r += victim.r / 4;
+    slayer.points += (int32_t) (victim.r / 4);
+
+    victim.x = (rand() % 800) - 400;
+    victim.y = (rand() % 600) - 300;
+    victim.r = (rand() % 30) + 10;
+}
+
+void onEntityCollision (Entity &ent1, Entity &ent2) {
+
+    //if (isEqf(ent1.r, ent2.r)) return;
+
+    if (ent1.r > ent2.r) eatOtherEntity(ent1, ent2);
+    else eatOtherEntity(ent2, ent1);
+}
+
+void collideEntities () {
+
+    for (int i = 0; i < entities.size(); ++i) {
+
+        for (int j = i + 1; j < entities.size(); ++j) {
+
+            float diffX = entities[i].x - entities[j].x;
+            float diffY = entities[i].y - entities[j].y;
+            float r     = entities[i].r + entities[j].r;
+
+            if (diffX * diffX + diffY * diffY < r * r) {
+
+                onEntityCollision(entities[i], entities[j]);
+            } 
+        }
+    }
+}
+
 
 int main(int argc, const char **argv)
 {
@@ -76,7 +139,7 @@ int main(int argc, const char **argv)
     return 1;
   }
 
-  constexpr int numAi = 10;
+  constexpr int numAi = 5;
 
   for (int i = 0; i < numAi; ++i)
   {
@@ -115,6 +178,9 @@ int main(int argc, const char **argv)
         break;
       };
     }
+
+    collideEntities();
+
     for (Entity &e : entities)
     {
       if (e.serverControlled)
@@ -126,10 +192,10 @@ int main(int argc, const char **argv)
         constexpr float spd = 50.f;
         e.x += dirX * spd * dt;
         e.y += dirY * spd * dt;
-        if (fabsf(diffX) < 10.f && fabsf(diffY) < 10.f)
+        if (diffX * diffX + diffY * diffY < 10.f * 10.f)
         {
-          e.targetX = (rand() % 40 - 20) * 15.f;
-          e.targetY = (rand() % 40 - 20) * 15.f;
+          e.targetX = rand() % 800 - 400;
+          e.targetY = rand() % 600 - 300;
         }
       }
     }
@@ -138,11 +204,10 @@ int main(int argc, const char **argv)
       for (size_t i = 0; i < server->peerCount; ++i)
       {
         ENetPeer *peer = &server->peers[i];
-        if (controlledMap[e.eid] != peer)
-          send_snapshot(peer, e.eid, e.x, e.y);
+        send_snapshot(peer, e.eid, e.x, e.y, e.r, e.points);
       }
     }
-    //usleep(400000);
+    usleep(10000);
   }
 
   enet_host_destroy(server);
