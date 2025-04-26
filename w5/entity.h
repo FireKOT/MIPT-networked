@@ -25,3 +25,5 @@ struct Entity
 
 void simulate_entity(Entity &e, float dt);
 
+Entity lerp (const Entity &ent1, const Entity &ent2, float t);
+

@@ -1,16 +1,122 @@
-// initial skeleton is a clone from https://github.com/jpcy/bgfx-minimal-example
-//
 #include <functional>
 #include "raylib.h"
 #include <enet/enet.h>
 #include <math.h>
+#include <iostream>
+#include <deque>
 
 #include <vector>
 #include "entity.h"
 #include "protocol.h"
+#include "PhysConsts.hpp"
 
 
-static std::vector<Entity> entities;
+constexpr uint8_t DISPLAY_DELAY = 200;   //ms
+
+
+struct EntityState {
+
+    Entity state = {};
+    uint64_t tick = 0;
+};
+
+
+class ClientEntity {
+
+public:
+
+    explicit ClientEntity (const Entity &ent): entity_(ent) {}
+
+    Entity getDisplayEntity (uint64_t curTime) {
+
+        if (states_.empty()) return entity_;
+
+        Entity lerpEntity = {};
+        uint64_t displayTime = curTime - DISPLAY_DELAY;
+
+        if (states_.size() == 1 || \
+            states_.back().tick * PHYS_TICK_TIME + DISPLAY_DELAY <= displayTime) {
+
+            lerpEntity = states_.back().state;
+        }
+        else if (states_.front().tick * PHYS_TICK_TIME >= displayTime) {
+
+            lerpEntity = states_.front().state;
+        }
+        else {
+
+            uint64_t id = 1;
+            while (states_[id].tick * PHYS_TICK_TIME < displayTime) {
+
+                ++id;
+            }
+
+            uint64_t time1 = states_[id - 1].tick * PHYS_TICK_TIME;
+            uint64_t time2 = states_[id    ].tick * PHYS_TICK_TIME;
+            float t = static_cast<float>((displayTime - time1)) / (time2 - time1);
+
+            lerpEntity = lerp(states_[id - 1].state, states_[id].state, t);
+
+            for (uint64_t i = 1; i < id; ++i) {
+
+                states_.pop_front();
+            }
+        }
+
+        return lerpEntity;
+    }
+
+    void addNewState (const Entity &ent, uint64_t tick) {
+
+        //assume that we don't recieve outdated info
+
+        if (states_.size() < 2) {
+
+            states_.push_back({ent, tick});
+            return;
+        } 
+
+        while (states_.back().tick > tick && states_.size() >= 2) {
+
+            states_.pop_back();
+        }
+
+        if (states_.back().tick >= tick) {
+
+            states_.back() = {ent, tick};
+        }
+        else {
+
+            states_.push_back({ent, tick});
+        }
+
+        for (int i = 0; i < 12; ++i) {
+
+            entity_ = states_.back().state;
+            entity_.thr = thr_;
+            entity_.steer = steer_;
+            simulate_entity(entity_, PHYS_TICK_TIME * 0.001f);
+            states_.push_back({entity_, states_.back().tick + 1});
+        }
+    }
+
+    void setLastInput (float thr, float steer) {
+
+        thr_ = thr;
+        steer_ = steer;
+    }
+
+private:
+
+    Entity entity_= {};
+
+    std::deque <EntityState> states_ = {};
+
+    float thr_ = 0.f, steer_ = 0.f;
+};
+
+
+static std::vector<ClientEntity> entities;
 static std::unordered_map<uint16_t, size_t> indexMap;
 static uint16_t my_entity = invalid_entity;
 
@@ -22,7 +128,7 @@ void on_new_entity_packet(ENetPacket *packet)
   if (itf != indexMap.end())
     return; // don't need to do anything, we already have entity
   indexMap[newEntity.eid] = entities.size();
-  entities.push_back(newEntity);
+  entities.push_back(ClientEntity(newEntity));
 }
 
 void on_set_controlled_entity(ENetPacket *packet)
@@ -40,15 +146,24 @@ static void get_entity(uint16_t eid, Callable c)
 
 void on_snapshot(ENetPacket *packet)
 {
-  uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f; float ori = 0.f;
-  deserialize_snapshot(packet, eid, x, y, ori);
-  get_entity(eid, [&](Entity& e)
-  {
-      e.x = x;
-      e.y = y;
-      e.ori = ori;
-  });
+    uint16_t eid = invalid_entity;
+    float x = 0.f; float y = 0.f; float ori = 0.f, omega = 0.f;
+    float vx = 0.f, vy = 0.f;
+    uint64_t tick = 0;
+    deserialize_snapshot(packet, eid, x, y, ori, tick, omega, vx, vy);
+    get_entity(eid, [&](ClientEntity& clientEntity) {
+        
+        Entity ent;
+
+        ent.x = x;
+        ent.y = y;
+        ent.vx = vx;
+        ent.vy = vy;
+        ent.ori = ori;
+        ent.omega = omega;
+
+        clientEntity.addNewState(ent, tick);
+    });
 }
 
 static void on_time(ENetPacket *packet, ENetPeer* peer)
@@ -113,11 +228,12 @@ static void simulate_world(ENetPeer* serverPeer)
     bool right = IsKeyDown(KEY_RIGHT);
     bool up = IsKeyDown(KEY_UP);
     bool down = IsKeyDown(KEY_DOWN);
-    get_entity(my_entity, [&](Entity& e)
+    get_entity(my_entity, [&](ClientEntity& e)
     {
         // Update
         float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
         float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
+        e.setLastInput(thr, steer);
 
         // Send
         send_entity_input(serverPeer, my_entity, thr, steer);
@@ -131,8 +247,11 @@ static void draw_world(const Camera2D& camera)
     ClearBackground(GRAY);
     BeginMode2D(camera);
 
-      for (const Entity &e : entities)
-        draw_entity(e);
+        for (ClientEntity &clientEntity : entities) {
+
+            Entity ent = clientEntity.getDisplayEntity(enet_time_get());
+            draw_entity(ent);
+        }
 
     EndMode2D();
   EndDrawing();
@@ -193,7 +312,7 @@ int main(int argc, const char **argv)
     update_net(client, serverPeer);
     simulate_world(serverPeer);
     draw_world(camera);
-    printf("%d\n", enet_time_get());
+    //printf("%d\n", enet_time_get());
   }
 
   CloseWindow();

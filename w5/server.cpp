@@ -6,9 +6,13 @@
 #include <stdlib.h>
 #include <vector>
 #include <map>
+#include "PhysConsts.hpp"
+
 
 static std::vector<Entity> entities;
 static std::map<uint16_t, ENetPeer*> controlledMap;
+static uint64_t ServerTick = 0;
+
 
 void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
 {
@@ -81,21 +85,30 @@ static void update_net(ENetHost* server)
   }
 }
 
-static void simulate_world(ENetHost* server, float dt)
-{
-  for (Entity &e : entities)
-  {
+static void simulate_world(ENetHost* server, uint64_t dt) {
+
+    for (Entity &e : entities) {
     // simulate
-    simulate_entity(e, dt); // 1.f/32.f
-    // send
-    for (size_t i = 0; i < server->peerCount; ++i)
-    {
-      ENetPeer *peer = &server->peers[i];
-      // skip this here in this implementation
-      //if (controlledMap[e.eid] != peer)
-      send_snapshot(peer, e.eid, e.x, e.y, e.ori);
+
+    static uint64_t unsimulatedTime = 0.f;
+    uint64_t timeToSimulate = unsimulatedTime + dt;
+    while (timeToSimulate > PHYS_TICK_TIME) {
+
+        simulate_entity(e, PHYS_TICK_TIME * 0.001f);
+        timeToSimulate -= PHYS_TICK_TIME;
+        ++ServerTick;
     }
-  }
+    unsimulatedTime = timeToSimulate;
+
+    // send
+    for (size_t i = 0; i < server->peerCount; ++i) {
+
+        ENetPeer *peer = &server->peers[i];
+        // skip this here in this implementation
+        //if (controlledMap[e.eid] != peer)
+        send_snapshot(peer, e.eid, e.x, e.y, e.ori, ServerTick, e.omega, e.vx, e.vy);
+    }
+    }
 }
 
 static void update_time(ENetHost* server, uint32_t curTime)
@@ -129,16 +142,17 @@ int main(int argc, const char **argv)
   while (true)
   {
     uint32_t curTime = enet_time_get();
-    float dt = (curTime - lastTime) * 0.001f;
+    uint32_t dt = (curTime - lastTime);
     lastTime = curTime;
 
     update_net(server);
     simulate_world(server, dt);
     update_time(server, curTime);
 
-    printf("%d\n", curTime);
+    //printf("%d\n", curTime);
 
     usleep(100000);
+    //usleep(1000);
   }
 
   enet_host_destroy(server);

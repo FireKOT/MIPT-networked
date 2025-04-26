@@ -1,5 +1,14 @@
 #include "protocol.h"
-#include <cstring> // memcpy
+#include <cstring>
+#include "bitstream.hpp"
+
+
+void sendPacket (ENetPeer *peer, const Bitstream &bs, enet_uint8 channalID = 0, enet_uint32 packetFlags = ENET_PACKET_FLAG_RELIABLE) {
+
+    ENetPacket *packet = enet_packet_create(bs.data(), bs.size(), packetFlags);
+    enet_peer_send(peer, channalID, packet);
+}
+
 
 void send_join(ENetPeer *peer)
 {
@@ -45,19 +54,20 @@ void send_entity_input(ENetPeer *peer, uint16_t eid, float thr, float steer)
   enet_peer_send(peer, 1, packet);
 }
 
-void send_snapshot(ENetPeer *peer, uint16_t eid, float x, float y, float ori)
-{
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t) + sizeof(uint16_t) +
-                                                   3 * sizeof(float),
-                                                   ENET_PACKET_FLAG_UNSEQUENCED);
-  uint8_t *ptr = packet->data;
-  *ptr = E_SERVER_TO_CLIENT_SNAPSHOT; ptr += sizeof(uint8_t);
-  memcpy(ptr, &eid, sizeof(uint16_t)); ptr += sizeof(uint16_t);
-  memcpy(ptr, &x, sizeof(float)); ptr += sizeof(float);
-  memcpy(ptr, &y, sizeof(float)); ptr += sizeof(float);
-  memcpy(ptr, &ori, sizeof(float)); ptr += sizeof(float);
+void send_snapshot(ENetPeer *peer, uint16_t eid, float x, float y, float ori, uint64_t tick, float omega, float vx, float vy) {
 
-  enet_peer_send(peer, 1, packet);
+    Bitstream bs;
+    bs.write(E_SERVER_TO_CLIENT_SNAPSHOT);
+    bs.write(eid);
+    bs.write(x);
+    bs.write(y);
+    bs.write(ori);
+    bs.write(tick);
+    bs.write(omega);
+    bs.write(vx);
+    bs.write(vy);
+
+    sendPacket(peer, bs, 1, ENET_PACKET_FLAG_UNSEQUENCED);
 }
 
 void send_time_msec(ENetPeer *peer, uint32_t timeMsec)
@@ -96,13 +106,19 @@ void deserialize_entity_input(ENetPacket *packet, uint16_t &eid, float &thr, flo
   steer = *(float*)(ptr); ptr += sizeof(float);
 }
 
-void deserialize_snapshot(ENetPacket *packet, uint16_t &eid, float &x, float &y, float &ori)
-{
-  uint8_t *ptr = packet->data; ptr += sizeof(uint8_t);
-  eid = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
-  x = *(float*)(ptr); ptr += sizeof(float);
-  y = *(float*)(ptr); ptr += sizeof(float);
-  ori = *(float*)(ptr); ptr += sizeof(float);
+void deserialize_snapshot(ENetPacket *packet, uint16_t &eid, float &x, float &y, float &ori, uint64_t &tick, float &omega, float &vx, float &vy) {
+
+    Bitstream bs(packet->data, packet->dataLength);
+    bs.skip<uint8_t>();
+
+    bs.read(eid);
+    bs.read(x);
+    bs.read(y);
+    bs.read(ori);
+    bs.read(tick);
+    bs.read(omega);
+    bs.read(vx);
+    bs.read(vy);
 }
 
 void deserialize_time_msec(ENetPacket *packet, uint32_t &timeMsec)

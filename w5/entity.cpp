@@ -1,5 +1,6 @@
 #include "entity.h"
 #include "mathUtils.h"
+#include <cmath>
 
 constexpr float worldSize = 30.f;
 
@@ -28,3 +29,15 @@ void simulate_entity(Entity &e, float dt)
   e.y = tile_val(e.y, worldSize);
 }
 
+Entity lerp (const Entity &ent1, const Entity &ent2, float t) {
+
+    Entity lerpEntity = ent1;
+    lerpEntity.x     = std::lerp(ent1.x,     ent2.x,     t);
+    lerpEntity.y     = std::lerp(ent1.y,     ent2.y,     t);
+    lerpEntity.vx    = std::lerp(ent1.vx,    ent2.vx,    t);
+    lerpEntity.vy    = std::lerp(ent1.vy,    ent2.vy,    t);
+    lerpEntity.ori   = std::lerp(ent1.ori,   ent2.ori,   t);
+    lerpEntity.omega = std::lerp(ent1.omega, ent2.omega, t);
+
+    return lerpEntity;
+}
