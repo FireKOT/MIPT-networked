@@ -16,7 +16,7 @@ float unpack_float(T c, float lo, float hi, int num_bits)
   return float(c) / range * (hi - lo) + lo;
 }
 
-template<typename T, int num_bits>
+template<typename T, uint16_t num_bits>
 struct PackedFloat
 {
   T packedVal;

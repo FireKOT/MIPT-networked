@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include <enet/enet.h>
 #include <math.h>
+#include <iostream>
 
 #include <vector>
 #include "entity.h"
@@ -52,17 +53,26 @@ static void get_entity(uint16_t eid, Callable c)
     c(entities[itf->second]);
 }
 
-void on_snapshot(ENetPacket *packet)
-{
-  uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f; float ori = 0.f;
-  deserialize_snapshot(packet, eid, x, y, ori);
-  get_entity(eid, [&](Entity& e)
-  {
-      e.x = x;
-      e.y = y;
-      e.ori = ori;
-  });
+void on_snapshot(ENetPacket *packet, ENetPeer* serverPeer) {
+
+	uint16_t eid = invalid_entity;
+	float x = 0.f, vx = 0.f, y = 0.f, vy = 0.f, ori = 0.f, omega = 0.f;
+	uint16_t packetID = 0;
+	deserialize_snapshot(packet, eid, x, vx, y, vy, ori, omega, packetID);
+
+	fprintf(stderr, "resv: %lg %lg\n", vx, vy);
+
+	get_entity(eid, [&](Entity& e)
+	{
+		e.x     = x;
+		e.vx    = vx;
+		e.y     = y;
+		e.vy    = vy;
+		e.ori   = ori;
+		e.omega = omega;
+	});
+
+	sendSnapshotAck(serverPeer, eid, packetID);
 }
 
 static void on_time(ENetPacket *packet, ENetPeer* peer)
@@ -112,7 +122,7 @@ static void update_net(ENetHost* client, ENetPeer* serverPeer)
         on_set_controlled_entity(event.packet);
         break;
       case E_SERVER_TO_CLIENT_SNAPSHOT:
-        on_snapshot(event.packet);
+        on_snapshot(event.packet, serverPeer);
         break;
       case E_SERVER_TO_CLIENT_TIME_MSEC:
         on_time(event.packet, event.peer);
@@ -126,24 +136,32 @@ static void update_net(ENetHost* client, ENetPeer* serverPeer)
   }
 }
 
-static void simulate_world(ENetPeer* serverPeer)
-{
-  if (my_entity != invalid_entity)
-  {
-    bool left = IsKeyDown(KEY_LEFT);
-    bool right = IsKeyDown(KEY_RIGHT);
-    bool up = IsKeyDown(KEY_UP);
-    bool down = IsKeyDown(KEY_DOWN);
-    get_entity(my_entity, [&](Entity& e)
-    {
-        // Update
-        float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
-        float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
+static void simulate_world(ENetPeer* serverPeer, float dt) {
 
-        // Send
-        send_entity_input(serverPeer, my_entity, thr, steer);
-    });
-  }
+	if (my_entity != invalid_entity)
+	{
+		bool left = IsKeyDown(KEY_LEFT);
+		bool right = IsKeyDown(KEY_RIGHT);
+		bool up = IsKeyDown(KEY_UP);
+		bool down = IsKeyDown(KEY_DOWN);
+		get_entity(my_entity, [&](Entity& e) {
+
+			// Update
+			float thr   = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
+			float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
+
+			e.thr   = thr;
+			e.steer = steer;
+
+			// Send
+			send_entity_input(serverPeer, my_entity, thr, steer);
+		});
+	}
+
+	for (auto &e: entities) {
+
+		simulate_entity(e, dt);
+	}
 }
 
 static void draw_world(const Camera2D& camera, const BandwidthAccumulator& bw)
@@ -255,7 +273,7 @@ int main(int argc, const char **argv)
 
     update_net(client, serverPeer);
     update_bandwidth(dt, client, bandwidthAccumulator);
-    simulate_world(serverPeer);
+    simulate_world(serverPeer, dt);
     update_camera(camera);
     draw_world(camera, bandwidthAccumulator);
   }

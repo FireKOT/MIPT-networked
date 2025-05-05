@@ -9,8 +9,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(W7_SOURCES
-    main.cpp
+    client.cpp
     protocol.cpp
+    entity.cpp
     )
 
 set(W7_SERVER_SOURCES
@@ -22,21 +23,10 @@ set(W7_SERVER_SOURCES
 
 include_directories("../3rdParty/enet/include")
 
-if(MSVC)
-  # https://github.com/raysan5/raylib/issues/857
-  add_compile_definitions(NOVIRTUALKEYCODES NOWINMESSAGES NOWINSTYLES NOSYSMETRICS NOMENUS NOICONS NOKEYSTATES NOSYSCOMMANDS NORASTEROPS NOSHOWWINDOW OEMRESOURCE NOATOM NOCLIPBOARD NOCOLOR NOCTLMGR NODRAWTEXT NOGDI NOKERNEL NOUSER NOMB NOMEMMGR NOMETAFILE NOMINMAX NOMSG NOOPENFILE NOSCROLL NOSERVICE NOSOUND NOTEXTMETRIC NOWH NOWINOFFSETS NOCOMM NOKANJI NOHELP NOPROFILER NODEFERWINDOWPOS NOMCX)
-endif()
+add_executable(client ${W7_SOURCES})
+target_link_libraries(client PUBLIC project_options project_warnings)
+target_link_libraries(client PUBLIC raylib enet)
 
-add_executable(w7 ${W7_SOURCES})
-target_link_libraries(w7 PUBLIC project_options project_warnings)
-target_link_libraries(w7 PUBLIC raylib enet)
-
-add_executable(w7_server ${W7_SERVER_SOURCES})
-target_link_libraries(w7_server PUBLIC project_options project_warnings)
-target_link_libraries(w7_server PUBLIC enet)
-
-if(MSVC)
-  target_link_libraries(w7 PUBLIC ws2_32.lib winmm.lib)
-  target_link_libraries(w7_server PUBLIC ws2_32.lib winmm.lib)
-endif()
-
+add_executable(server ${W7_SERVER_SOURCES})
+target_link_libraries(server PUBLIC project_options project_warnings)
+target_link_libraries(server PUBLIC enet)
